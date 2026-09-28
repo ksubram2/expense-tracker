@@ -18,6 +18,14 @@ export interface CategoryItem {
   allocatedBudget?: number;
 }
 
+export interface ReceiptAttachment {
+  id: string;
+  dataUrl: string;
+  fileName: string;
+  fileType: string;
+  uploadedAt?: number;
+}
+
 export interface Expense {
   id: string;
   projectId: string;
@@ -32,7 +40,10 @@ export interface Expense {
   receiptNo?: string;
   notes?: string;
   
-  // Attached Receipt File (image / document)
+  // Attached Receipt Files (Multiple images / documents)
+  receipts?: ReceiptAttachment[];
+
+  // Backward-compatibility single file fields
   receiptDataUrl?: string;
   receiptFileName?: string;
   receiptFileType?: string;

@@ -114,7 +114,8 @@ export const SimpleExpenseList: React.FC<SimpleExpenseListProps> = ({
           ) : (
             relevantExpenses.map((exp) => {
               const isMarriageExp = exp.projectId === marriageProject.id;
-              const hasReceipt = Boolean(exp.receiptDataUrl);
+              const receiptCount = (exp.receipts && exp.receipts.length > 0) ? exp.receipts.length : (exp.receiptDataUrl ? 1 : 0);
+              const hasReceipt = receiptCount > 0;
 
               return (
                 <div
@@ -140,15 +141,15 @@ export const SimpleExpenseList: React.FC<SimpleExpenseListProps> = ({
                           {exp.categoryName}
                         </span>
 
-                        {/* Receipt Attached Pill */}
+                        {/* Receipt Attached Pill (Supports multi-receipt count) */}
                         {hasReceipt && (
                           <button
                             onClick={() => setViewingReceiptExpense(exp)}
                             className="flex items-center gap-1 text-[10px] px-1.5 py-0.2 rounded font-bold bg-indigo-50 hover:bg-indigo-100 text-indigo-700 border border-indigo-200 transition-colors"
-                            title="View & Download Receipt"
+                            title={`View & Download ${receiptCount} Receipt${receiptCount > 1 ? 's' : ''}`}
                           >
                             <FileCheck className="w-3 h-3 text-indigo-600" />
-                            <span>Receipt</span>
+                            <span>{receiptCount > 1 ? `${receiptCount} Receipts` : 'Receipt'}</span>
                           </button>
                         )}
                       </div>

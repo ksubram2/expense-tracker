@@ -1,7 +1,7 @@
 import React, { useState, useRef } from 'react';
-import { Expense, Project, PaymentMode } from '../types';
+import { Expense, Project, PaymentMode, ReceiptAttachment } from '../types';
 import { formatCurrency, compressReceiptImage } from '../utils/formatters';
-import { X, Upload, Paperclip, FileText, Image as ImageIcon, Trash2, Loader2 } from 'lucide-react';
+import { X, Upload, Paperclip, FileText, Image as ImageIcon, Trash2, Loader2, Plus } from 'lucide-react';
 
 interface SimpleAddModalProps {
   initialProjectId: string;
@@ -59,10 +59,22 @@ export const SimpleAddModal: React.FC<SimpleAddModalProps> = ({
   );
   const [notes, setNotes] = useState(editingExpense?.notes || '');
 
-  // Receipt File Attachment State
-  const [receiptDataUrl, setReceiptDataUrl] = useState<string | undefined>(editingExpense?.receiptDataUrl);
-  const [receiptFileName, setReceiptFileName] = useState<string | undefined>(editingExpense?.receiptFileName);
-  const [receiptFileType, setReceiptFileType] = useState<string | undefined>(editingExpense?.receiptFileType);
+  // Multi-Receipt File Attachments State
+  const [receipts, setReceipts] = useState<ReceiptAttachment[]>(() => {
+    if (editingExpense?.receipts && editingExpense.receipts.length > 0) {
+      return editingExpense.receipts;
+    }
+    if (editingExpense?.receiptDataUrl) {
+      return [{
+        id: `rec_${Date.now()}_0`,
+        dataUrl: editingExpense.receiptDataUrl,
+        fileName: editingExpense.receiptFileName || 'Receipt_1.png',
+        fileType: editingExpense.receiptFileType || 'image/jpeg',
+        uploadedAt: Date.now(),
+      }];
+    }
+    return [];
+  });
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   const parsedAmount = Math.max(0, Number(amount) || 0);
@@ -96,38 +108,54 @@ export const SimpleAddModal: React.FC<SimpleAddModalProps> = ({
 
   const [isCompressingReceipt, setIsCompressingReceipt] = useState(false);
 
-  // Handle Receipt Upload (Image or PDF)
+  // Handle Multi-Receipt Upload (Images or PDFs)
   const handleFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (!file) return;
+    const files = Array.from(e.target.files || []);
+    if (files.length === 0) return;
 
-    setReceiptFileName(file.name);
-    setReceiptFileType(file.type);
     setIsCompressingReceipt(true);
+    const newAttachments: ReceiptAttachment[] = [];
 
-    try {
-      const dataUrl = await compressReceiptImage(file, 1200, 0.75);
-      setReceiptDataUrl(dataUrl);
-    } catch (err) {
-      console.error('Failed to compress receipt image:', err);
-      // Fallback to basic file reader
-      const reader = new FileReader();
-      reader.onloadend = () => {
-        setReceiptDataUrl(reader.result as string);
-      };
-      reader.readAsDataURL(file);
-    } finally {
-      setIsCompressingReceipt(false);
+    for (let i = 0; i < files.length; i++) {
+      const file = files[i];
+      try {
+        const dataUrl = await compressReceiptImage(file, 1200, 0.75);
+        newAttachments.push({
+          id: `rec_${Date.now()}_${i}_${Math.random().toString(36).substring(2, 6)}`,
+          dataUrl,
+          fileName: file.name,
+          fileType: file.type,
+          uploadedAt: Date.now(),
+        });
+      } catch (err) {
+        console.error('Failed to compress receipt image:', err);
+        // Fallback to basic file reader
+        await new Promise<void>((resolve) => {
+          const reader = new FileReader();
+          reader.onloadend = () => {
+            newAttachments.push({
+              id: `rec_${Date.now()}_${i}`,
+              dataUrl: reader.result as string,
+              fileName: file.name,
+              fileType: file.type,
+              uploadedAt: Date.now(),
+            });
+            resolve();
+          };
+          reader.readAsDataURL(file);
+        });
+      }
     }
-  };
 
-  const handleRemoveReceipt = () => {
-    setReceiptDataUrl(undefined);
-    setReceiptFileName(undefined);
-    setReceiptFileType(undefined);
+    setReceipts(prev => [...prev, ...newAttachments]);
+    setIsCompressingReceipt(false);
     if (fileInputRef.current) {
       fileInputRef.current.value = '';
     }
+  };
+
+  const handleRemoveReceipt = (idToRemove: string) => {
+    setReceipts(prev => prev.filter(r => r.id !== idToRemove));
   };
 
   const handleSubmit = (e: React.FormEvent) => {
@@ -135,6 +163,7 @@ export const SimpleAddModal: React.FC<SimpleAddModalProps> = ({
     if (!title.trim() || parsedAmount <= 0) return;
 
     const selectedCategory = currentProject.categories.find(c => c.id === categoryId);
+    const primaryReceipt = receipts[0];
 
     onSave({
       projectId: selectedProjectId,
@@ -147,9 +176,10 @@ export const SimpleAddModal: React.FC<SimpleAddModalProps> = ({
       receiptNo: receiptNo.trim() || undefined,
       paymentMode,
       notes: notes.trim() || undefined,
-      receiptDataUrl,
-      receiptFileName,
-      receiptFileType,
+      receipts,
+      receiptDataUrl: primaryReceipt?.dataUrl,
+      receiptFileName: primaryReceipt?.fileName,
+      receiptFileType: primaryReceipt?.fileType,
     });
   };
 
@@ -353,70 +383,101 @@ export const SimpleAddModal: React.FC<SimpleAddModalProps> = ({
             </div>
           </div>
 
-          {/* Receipt Upload & Preview Section */}
+          {/* Receipt Upload & Preview Section (Multi-File Supported) */}
           <div className="space-y-1.5 pt-1">
             <label className="block text-xs font-semibold text-slate-700 flex items-center justify-between">
               <span className="flex items-center gap-1">
                 <Paperclip className="w-3.5 h-3.5 text-slate-500" />
-                Upload Receipt / Bill (Image / PDF)
+                Upload Receipts / Bills ({receipts.length} Attached)
               </span>
-              <span className="text-[10px] text-slate-400 font-normal">Optional</span>
+              <span className="text-[10px] text-slate-400 font-normal">Images or PDFs</span>
             </label>
 
             <input
               type="file"
               ref={fileInputRef}
+              multiple
               accept="image/*,application/pdf"
               onChange={handleFileChange}
               className="hidden"
             />
 
-            {!receiptDataUrl ? (
+            {receipts.length === 0 ? (
               <button
                 type="button"
                 disabled={isCompressingReceipt}
                 onClick={() => fileInputRef.current?.click()}
-                className="w-full py-2.5 px-3 rounded-xl border border-dashed border-slate-300 hover:border-slate-400 bg-slate-50 hover:bg-slate-100/80 text-xs font-semibold text-slate-600 flex items-center justify-center gap-2 transition-colors disabled:opacity-60"
+                className="w-full py-3 px-3 rounded-xl border border-dashed border-slate-300 hover:border-slate-400 bg-slate-50 hover:bg-slate-100/80 text-xs font-semibold text-slate-600 flex items-center justify-center gap-2 transition-colors disabled:opacity-60"
               >
                 {isCompressingReceipt ? (
                   <>
                     <Loader2 className="w-4 h-4 text-slate-500 animate-spin" />
-                    <span>Compressing & Attaching...</span>
+                    <span>Compressing & Attaching Receipts...</span>
                   </>
                 ) : (
                   <>
                     <Upload className="w-4 h-4 text-slate-500" />
-                    <span>Choose Receipt File / Take Photo</span>
+                    <span>Choose Receipts / Photos (Multiple Allowed)</span>
                   </>
                 )}
               </button>
             ) : (
-              <div className="bg-slate-50 p-2.5 rounded-xl border border-slate-200 flex items-center justify-between gap-3">
-                <div className="flex items-center gap-2 min-w-0">
-                  {receiptFileType?.includes('pdf') ? (
-                    <FileText className="w-7 h-7 text-indigo-600 shrink-0" />
-                  ) : (
-                    <img
-                      src={receiptDataUrl}
-                      alt="Receipt preview"
-                      className="w-8 h-8 rounded-md object-cover border border-slate-200 shrink-0"
-                    />
-                  )}
-                  <div className="min-w-0">
-                    <div className="text-xs font-bold text-slate-800 truncate">
-                      {receiptFileName || 'Receipt File Attached'}
+              <div className="space-y-2">
+                {/* List of attached files */}
+                <div className="space-y-1.5 max-h-40 overflow-y-auto pr-0.5">
+                  {receipts.map((rec, idx) => (
+                    <div
+                      key={rec.id || idx}
+                      className="bg-slate-50 p-2 rounded-xl border border-slate-200 flex items-center justify-between gap-2.5"
+                    >
+                      <div className="flex items-center gap-2 min-w-0">
+                        {rec.fileType?.includes('pdf') || rec.fileName?.toLowerCase().endsWith('.pdf') ? (
+                          <FileText className="w-7 h-7 text-indigo-600 shrink-0" />
+                        ) : (
+                          <img
+                            src={rec.dataUrl}
+                            alt={rec.fileName}
+                            className="w-7 h-7 rounded-md object-cover border border-slate-200 shrink-0"
+                          />
+                        )}
+                        <div className="min-w-0">
+                          <div className="text-xs font-bold text-slate-800 truncate">
+                            {rec.fileName || `Receipt #${idx + 1}`}
+                          </div>
+                          <div className="text-[9px] text-emerald-600 font-medium">Ready for download</div>
+                        </div>
+                      </div>
+
+                      <button
+                        type="button"
+                        onClick={() => handleRemoveReceipt(rec.id)}
+                        className="p-1 text-slate-400 hover:text-rose-600 transition-colors shrink-0"
+                        title="Remove this receipt"
+                      >
+                        <Trash2 className="w-3.5 h-3.5" />
+                      </button>
                     </div>
-                    <div className="text-[10px] text-emerald-600 font-medium">Ready for download anytime</div>
-                  </div>
+                  ))}
                 </div>
 
+                {/* Add More Files Button */}
                 <button
                   type="button"
-                  onClick={handleRemoveReceipt}
-                  className="p-1 text-slate-400 hover:text-rose-600 transition-colors"
-                  title="Remove Receipt"
+                  disabled={isCompressingReceipt}
+                  onClick={() => fileInputRef.current?.click()}
+                  className="w-full py-1.5 px-3 rounded-lg border border-dashed border-slate-300 hover:border-slate-400 bg-white hover:bg-slate-50 text-[11px] font-semibold text-slate-600 flex items-center justify-center gap-1.5 transition-colors disabled:opacity-60"
                 >
-                  <Trash2 className="w-4 h-4" />
+                  {isCompressingReceipt ? (
+                    <>
+                      <Loader2 className="w-3.5 h-3.5 text-slate-500 animate-spin" />
+                      <span>Adding & Compressing...</span>
+                    </>
+                  ) : (
+                    <>
+                      <Plus className="w-3.5 h-3.5 text-slate-600" />
+                      <span>+ Attach Another Receipt / Bill</span>
+                    </>
+                  )}
                 </button>
               </div>
             )}
