@@ -323,6 +323,10 @@ export const App: React.FC = () => {
     setIsLocked(true);
   };
 
+  const handleOpenPinSetup = () => {
+    setIsSettingUpPin(true);
+  };
+
   const handleExportFullBackup = () => {
     exportFullBackupFile(projects, expenses);
     playSuccessSound();
