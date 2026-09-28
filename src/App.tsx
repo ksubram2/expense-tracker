@@ -17,6 +17,12 @@ import { EditEngineerModal } from './components/EditEngineerModal';
 import { FloatingAddButton } from './components/FloatingAddButton';
 import { PinLockScreen } from './components/PinLockScreen';
 import { playDeductSound, playSuccessSound } from './utils/formatters';
+import {
+  saveToIndexedDB,
+  loadFromIndexedDB,
+  exportFullBackupFile,
+  importFullBackupFile,
+} from './utils/storage';
 
 const STORAGE_KEY_PROJECTS = 'spendcraft_projects_clean_v2';
 const STORAGE_KEY_EXPENSES = 'spendcraft_expenses_clean_v2';
@@ -72,14 +78,43 @@ export const App: React.FC = () => {
   const [editingExpense, setEditingExpense] = useState<Expense | null>(null);
   const [recentDeduction, setRecentDeduction] = useState<DeductionAnimationEvent | null>(null);
 
-  // Sync to localStorage
+  // Dual-Layer Persistence: Sync to localStorage & IndexedDB
   useEffect(() => {
-    localStorage.setItem(STORAGE_KEY_PROJECTS, JSON.stringify(projects));
+    try {
+      localStorage.setItem(STORAGE_KEY_PROJECTS, JSON.stringify(projects));
+    } catch (e) {
+      console.warn('LocalStorage quota limit reached, relying on IndexedDB:', e);
+    }
+    saveToIndexedDB(STORAGE_KEY_PROJECTS, projects);
   }, [projects]);
 
   useEffect(() => {
-    localStorage.setItem(STORAGE_KEY_EXPENSES, JSON.stringify(expenses));
+    try {
+      localStorage.setItem(STORAGE_KEY_EXPENSES, JSON.stringify(expenses));
+    } catch (e) {
+      console.warn('LocalStorage quota limit reached, relying on IndexedDB:', e);
+    }
+    saveToIndexedDB(STORAGE_KEY_EXPENSES, expenses);
   }, [expenses]);
+
+  // Initial IndexedDB check fallback
+  useEffect(() => {
+    const checkIndexedDBFallback = async () => {
+      if (expenses.length === 0) {
+        const idbExpenses = await loadFromIndexedDB<Expense[]>(STORAGE_KEY_EXPENSES);
+        if (idbExpenses && idbExpenses.length > 0) {
+          setExpenses(idbExpenses);
+        }
+      }
+      if (projects.length === 0) {
+        const idbProjects = await loadFromIndexedDB<Project[]>(STORAGE_KEY_PROJECTS);
+        if (idbProjects && idbProjects.length > 0) {
+          setProjects(idbProjects);
+        }
+      }
+    };
+    checkIndexedDBFallback();
+  }, []);
 
   // Derived Projects
   const marriageProject = projects.find(p => p.type === 'marriage') || projects[0];
@@ -288,8 +323,21 @@ export const App: React.FC = () => {
     setIsLocked(true);
   };
 
-  const handleOpenPinSetup = () => {
-    setIsSettingUpPin(true);
+  const handleExportFullBackup = () => {
+    exportFullBackupFile(projects, expenses);
+    playSuccessSound();
+  };
+
+  const handleImportBackup = async (file: File) => {
+    try {
+      const data = await importFullBackupFile(file);
+      if (data.projects) setProjects(data.projects);
+      if (data.expenses) setExpenses(data.expenses);
+      playSuccessSound();
+      alert('Backup restored successfully!');
+    } catch (err: any) {
+      alert('Failed to restore backup: ' + (err?.message || 'Invalid file format'));
+    }
   };
 
   return (
@@ -316,6 +364,8 @@ export const App: React.FC = () => {
         onExportCSV={handleExportCSV}
         onLockApp={handleLockApp}
         onOpenPinSetup={handleOpenPinSetup}
+        onExportBackup={handleExportFullBackup}
+        onImportBackup={handleImportBackup}
       />
 
       {/* Main Responsive Container */}
